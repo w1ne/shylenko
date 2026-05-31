@@ -20,6 +20,7 @@ class SecureCoachConnectApp {
         this.rejectedAuthors = new Set();
         this.rejectedLeads = [];
         this.currentFilter = 'active';
+        this.editingLeadId = null;
         this.isAnalyzing = false;
         this.analysisAborted = false;
 
@@ -243,11 +244,6 @@ class SecureCoachConnectApp {
                 this.exportDataSafely();
             });
 
-            document.getElementById('importQuoraBtn')?.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.importQuoraLeadSafely();
-            });
-
             document.getElementById('filterActiveBtn')?.addEventListener('click', () => this.setFilterSafely('active'));
             document.getElementById('filterSavedBtn')?.addEventListener('click', () => this.setFilterSafely('saved'));
             document.getElementById('filterRejectedBtn')?.addEventListener('click', () => this.setFilterSafely('rejected'));
@@ -309,6 +305,7 @@ class SecureCoachConnectApp {
 
             const visible = this.getVisibleProspects();
             if (visible.length === 0) {
+                this.updateEmptyStateText();
                 emptyState.classList.remove('hidden');
                 prospectsContainer.innerHTML = '';
             } else {
@@ -318,6 +315,31 @@ class SecureCoachConnectApp {
         } catch (error) {
             console.error('Error updating UI:', error);
         }
+    }
+
+    updateEmptyStateText() {
+        const title = document.getElementById('emptyStateTitle');
+        const text = document.getElementById('emptyStateText');
+        if (!title || !text) return;
+
+        const states = {
+            active: {
+                title: 'No active leads',
+                text: 'Run a Reddit search or lower the score threshold if the current filters are too strict.'
+            },
+            saved: {
+                title: 'No saved leads',
+                text: 'Save a lead from Active Leads to build a short list for follow-up.'
+            },
+            rejected: {
+                title: 'No rejected leads',
+                text: 'Leads you mark as not a fit will appear here and stay hidden from future searches.'
+            }
+        };
+
+        const state = states[this.currentFilter] || states.active;
+        title.textContent = state.title;
+        text.textContent = state.text;
     }
 
     updateStats() {
@@ -955,6 +977,7 @@ Be empathetic, no sales pitch.`;
             const content = this.createContentSafely(prospect);
             const tags = this.createTagsSafely(prospect);
             const analysis = this.createAnalysisSafely(prospect);
+            const editor = this.createLeadEditorSafely(prospect);
             const message = this.createMessageSectionSafely(prospect);
 
             // Append elements
@@ -962,6 +985,9 @@ Be empathetic, no sales pitch.`;
             card.appendChild(content);
             card.appendChild(tags);
             card.appendChild(analysis);
+            if (editor) {
+                card.appendChild(editor);
+            }
             card.appendChild(message);
 
             return card;
@@ -1101,6 +1127,93 @@ Be empathetic, no sales pitch.`;
         }
 
         return analysisDiv;
+    }
+
+    createLeadEditorSafely(prospect) {
+        if (this.editingLeadId !== prospect.id || prospect.rejected) {
+            return null;
+        }
+
+        const suffix = this.getSafeElementSuffix(prospect.id);
+        const editor = document.createElement('div');
+        editor.className = 'mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200';
+
+        const title = SecurityUtils.createElement('h4', 'Edit Lead', {
+            className: 'font-medium text-gray-900 mb-3'
+        });
+        editor.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-1 md:grid-cols-3 gap-3 mb-3';
+
+        const fields = [
+            { id: 'leadEditPain', label: 'Pain', type: 'number', value: prospect.analysis.pain ?? '', attrs: { min: '0', max: '10', step: '0.5' } },
+            { id: 'leadEditMoney', label: 'Money', type: 'text', value: prospect.analysis.money || 'UNKNOWN' },
+            { id: 'leadEditLocation', label: 'Location', type: 'text', value: prospect.analysis.location || 'UNKNOWN' },
+            { id: 'leadEditAge', label: 'Age', type: 'text', value: prospect.analysis.age || '' },
+            { id: 'leadEditGender', label: 'Gender', type: 'text', value: prospect.analysis.gender || 'UNKNOWN' },
+            { id: 'leadEditStatus', label: 'CRM Status', type: 'text', value: prospect.status || 'New' }
+        ];
+
+        fields.forEach(field => {
+            grid.appendChild(this.createEditorFieldSafely(`${field.id}_${suffix}`, field));
+        });
+
+        editor.appendChild(grid);
+
+        const notesWrap = document.createElement('label');
+        notesWrap.className = 'block text-sm font-medium text-gray-700 mb-3';
+        notesWrap.textContent = 'Notes';
+
+        const notes = document.createElement('textarea');
+        notes.id = `leadEditNotes_${suffix}`;
+        notes.className = 'mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
+        notes.rows = 3;
+        notes.value = prospect.notes || '';
+        notesWrap.appendChild(notes);
+        editor.appendChild(notesWrap);
+
+        const actions = document.createElement('div');
+        actions.className = 'flex flex-wrap gap-3';
+
+        const saveBtn = SecurityUtils.createElement('button', 'Save Changes', {
+            className: 'bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors'
+        });
+        saveBtn.addEventListener('click', () => this.saveInlineLeadEditsSafely(prospect.id));
+
+        const cancelBtn = SecurityUtils.createElement('button', 'Cancel', {
+            className: 'px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors'
+        });
+        cancelBtn.addEventListener('click', () => {
+            this.editingLeadId = null;
+            this.updateUI();
+        });
+
+        actions.appendChild(saveBtn);
+        actions.appendChild(cancelBtn);
+        editor.appendChild(actions);
+
+        return editor;
+    }
+
+    createEditorFieldSafely(id, field) {
+        const label = document.createElement('label');
+        label.className = 'block text-sm font-medium text-gray-700';
+        label.textContent = field.label;
+
+        const input = document.createElement('input');
+        input.id = id;
+        input.type = field.type;
+        input.value = field.value;
+        input.className = 'mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
+        Object.entries(field.attrs || {}).forEach(([key, value]) => input.setAttribute(key, value));
+        label.appendChild(input);
+
+        return label;
+    }
+
+    getSafeElementSuffix(value) {
+        return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     }
 
     createMessageSectionSafely(prospect) {
@@ -1319,21 +1432,26 @@ Be empathetic, no sales pitch.`;
                 return;
             }
 
-            const updates = {
-                pain: window.prompt('Pain point 0-10', prospect.analysis.pain ?? ''),
-                money: window.prompt('Money/resourcefulness 0-10 or UNKNOWN', prospect.analysis.money || 'UNKNOWN'),
-                location: window.prompt('Location: US / EUROPE / OTHER / UNKNOWN', prospect.analysis.location || 'UNKNOWN'),
-                age: window.prompt('Age or UNKNOWN', prospect.analysis.age || 'UNKNOWN'),
-                gender: window.prompt('Gender: MALE / FEMALE / UNKNOWN', prospect.analysis.gender || 'UNKNOWN'),
-                status: window.prompt('CRM Status', prospect.status || 'New'),
-                notes: window.prompt('Notes', prospect.notes || '')
-            };
-
-            this.saveLeadEditsSafely(prospectId, updates);
+            this.editingLeadId = this.editingLeadId === prospectId ? null : prospectId;
+            this.updateUI();
         } catch (error) {
             console.error('Error editing lead:', error);
             this.showToast('Failed to edit lead', 'error');
         }
+    }
+
+    saveInlineLeadEditsSafely(prospectId) {
+        const suffix = this.getSafeElementSuffix(prospectId);
+        const readValue = id => document.getElementById(`${id}_${suffix}`)?.value || '';
+        this.saveLeadEditsSafely(prospectId, {
+            pain: readValue('leadEditPain'),
+            money: readValue('leadEditMoney'),
+            location: readValue('leadEditLocation'),
+            age: readValue('leadEditAge'),
+            gender: readValue('leadEditGender'),
+            status: readValue('leadEditStatus'),
+            notes: readValue('leadEditNotes')
+        });
     }
 
     saveLeadEditsSafely(prospectId, updates) {
@@ -1363,6 +1481,7 @@ Be empathetic, no sales pitch.`;
             prospect.analysis.age = age;
             prospect.status = SecurityUtils.escapeHTML(String(updates.status || prospect.status || 'New').substring(0, 60));
             prospect.notes = SecurityUtils.escapeHTML(String(updates.notes || '').substring(0, 500));
+            this.editingLeadId = null;
 
             this.saveProspectsSafely();
             this.showToast('Lead updated', 'success', 2000);
@@ -1370,67 +1489,6 @@ Be empathetic, no sales pitch.`;
         } catch (error) {
             console.error('Error saving lead edits:', error);
             this.showToast('Failed to save lead edits', 'error');
-        }
-    }
-
-    async importQuoraLeadSafely() {
-        if (!this.config.apiKey) {
-            this.showToast('Please configure your API key first', 'warning');
-            this.openConfig();
-            return;
-        }
-
-        const input = document.getElementById('quoraImportInput');
-        const text = (input?.value || '').trim();
-        if (text.length < 20) {
-            this.showToast('Paste at least 20 characters to import a lead', 'warning');
-            return;
-        }
-
-        try {
-            this.showLoadingState();
-            this.updateProgress(20, 'Scoring manual Quora lead...');
-
-            const post = SecurityUtils.sanitizePost({
-                id: `quora-manual-${Date.now()}`,
-                author: 'quora-manual',
-                title: text.substring(0, 80) || 'Manual Quora lead',
-                selftext: text,
-                subreddit: 'quora-manual',
-                created_utc: Math.floor(Date.now() / 1000),
-                score: 0,
-                num_comments: 0,
-                url: 'https://www.quora.com/',
-                content: text
-            });
-
-            const analysis = await this.analyzePostSafely(post, '');
-            const message = await this.generateMessageSafely(post, analysis);
-            const prospect = {
-                id: `${post.id}_${Math.random().toString(36).substr(2, 9)}`,
-                post,
-                analysis,
-                message: SecurityUtils.escapeHTML(message),
-                score: analysis.score,
-                saved: true,
-                notes: 'Manual Quora import',
-                status: 'Saved',
-                profileContext: '',
-                contacted: false,
-                createdAt: new Date().toISOString()
-            };
-
-            this.prospects.unshift(prospect);
-            this.saveProspectsSafely();
-            if (input) input.value = '';
-            this.hideLoadingState();
-            this.currentFilter = 'saved';
-            this.updateUI();
-            this.showToast('Manual lead imported and scored', 'success');
-        } catch (error) {
-            this.hideLoadingState();
-            console.error('Error importing manual Quora lead:', error);
-            this.showToast('Manual import failed', 'error');
         }
     }
 
