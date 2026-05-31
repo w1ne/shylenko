@@ -7,9 +7,12 @@ class SecureCoachConnectApp {
         this.config = {
             apiKey: '',
             subreddits: ['dating', 'confidence', 'socialanxiety', 'dating_advice', 'datingoverthirty', 'datingoverforty', 'relationship_advice', 'relationships', 'lonely', 'ForeverAlone', 'seduction', 'askwomen', 'askmen', 'self', 'getmotivated', 'decidingtobebetter'],
+            desiredSignals: 'Straight men, dating pain, actively asking for help, likely adult, likely has resources, open to coaching or advice',
+            avoidSignals: 'Women, minors, current students, severe debt, suicidal crisis, severe mental health crisis, not looking for dating help, no clear pain point',
             minScore: 7.0,
             maxResults: 10
         };
+        this.disqualifiedPostIds = new Set();
         this.isAnalyzing = false;
         this.analysisAborted = false;
 
@@ -71,10 +74,20 @@ class SecureCoachConnectApp {
                 const cleanConfig = {
                     apiKey: config.apiKey || '',
                     subreddits: config.subreddits || this.config.subreddits,
+                    desiredSignals: config.desiredSignals || this.config.desiredSignals,
+                    avoidSignals: config.avoidSignals || this.config.avoidSignals,
                     minScore: config.minScore || this.config.minScore,
                     maxResults: config.maxResults || this.config.maxResults
                 };
                 this.config = { ...this.config, ...cleanConfig };
+            }
+
+            const savedDisqualified = localStorage.getItem('coachConnect_disqualifiedPostIds');
+            if (savedDisqualified) {
+                const ids = JSON.parse(savedDisqualified);
+                if (Array.isArray(ids)) {
+                    this.disqualifiedPostIds = new Set(ids.filter(id => typeof id === 'string'));
+                }
             }
 
             const savedProspects = localStorage.getItem('coachConnect_prospects');
@@ -96,6 +109,8 @@ class SecureCoachConnectApp {
             this.config = {
                 apiKey: '',
                 subreddits: ['dating', 'confidence', 'socialanxiety', 'dating_advice', 'datingoverthirty', 'datingoverforty', 'relationship_advice', 'relationships', 'lonely', 'ForeverAlone', 'seduction', 'askwomen', 'askmen', 'self', 'getmotivated', 'decidingtobebetter'],
+                desiredSignals: 'Straight men, dating pain, actively asking for help, likely adult, likely has resources, open to coaching or advice',
+                avoidSignals: 'Women, minors, current students, severe debt, suicidal crisis, severe mental health crisis, not looking for dating help, no clear pain point',
                 minScore: 7.0,
                 maxResults: 10
             };
@@ -110,6 +125,8 @@ class SecureCoachConnectApp {
             .filter(Boolean)
             .filter(s => /^[a-zA-Z0-9_]+$/.test(s)); // Validate subreddit names
 
+        const desiredSignals = document.getElementById('desiredSignalsInput').value.trim();
+        const avoidSignals = document.getElementById('avoidSignalsInput').value.trim();
         const minScore = parseFloat(document.getElementById('minScoreInput').value);
         const maxResults = parseInt(document.getElementById('maxResultsInput').value);
 
@@ -146,6 +163,8 @@ class SecureCoachConnectApp {
             this.config = {
                 apiKey: encryptedApiKey,
                 subreddits,
+                desiredSignals: desiredSignals || this.config.desiredSignals,
+                avoidSignals: avoidSignals || this.config.avoidSignals,
                 minScore,
                 maxResults
             };
@@ -260,7 +279,6 @@ class SecureCoachConnectApp {
             document.getElementById('totalCount').textContent = total;
             document.getElementById('highQualityCount').textContent = highQuality;
             document.getElementById('avgScore').textContent = avgScore;
-            document.getElementById('apiCost').textContent = 'N/A';
 
             // Add response rate if we have contacted prospects
             if (contacted > 0) {
@@ -327,12 +345,14 @@ class SecureCoachConnectApp {
 
                     let totalPosts = 0;
                     if (newPosts.status === 'fulfilled') {
-                        allPosts.push(...newPosts.value);
-                        totalPosts += newPosts.value.length;
+                        const visiblePosts = newPosts.value.filter(post => !this.disqualifiedPostIds.has(post.id));
+                        allPosts.push(...visiblePosts);
+                        totalPosts += visiblePosts.length;
                     }
                     if (hotPosts.status === 'fulfilled') {
-                        allPosts.push(...hotPosts.value);
-                        totalPosts += hotPosts.value.length;
+                        const visiblePosts = hotPosts.value.filter(post => !this.disqualifiedPostIds.has(post.id));
+                        allPosts.push(...visiblePosts);
+                        totalPosts += visiblePosts.length;
                     }
 
                     console.log(`Found ${totalPosts} posts from r/${subreddit} (new + hot)`);
@@ -378,7 +398,7 @@ class SecureCoachConnectApp {
                 try {
                     const analysis = await this.analyzePostSafely(post);
 
-                    if (analysis.score >= this.config.minScore) {
+                    if (!analysis.disqualified && analysis.score >= this.config.minScore) {
                         const message = await this.generateMessageSafely(post, analysis);
 
                         prospects.push({
@@ -424,7 +444,7 @@ class SecureCoachConnectApp {
             if (prospects.length === 0) {
                 this.showToast('No high-quality prospects found. Try lowering your score threshold or expanding subreddit list.', 'info');
             } else {
-                this.showToast(`Found ${prospects.length} high-quality prospects! Estimated cost: $${(allPosts.length * 0.12).toFixed(2)}`, 'success');
+                this.showToast(`Found ${prospects.length} high-quality prospects!`, 'success');
             }
 
         } catch (error) {
@@ -553,13 +573,27 @@ class SecureCoachConnectApp {
 
     async analyzePostSafely(post) {
         const postDate = new Date(post.created_utc * 1000).toLocaleDateString();
-        const prompt = `Rate dating coaching potential (1-10). Seeking help + financial stability + age 25-40 = higher score.
+        const prompt = `Rate dating coaching lead fit for a coach who only wants straight male dating clients.
+
+Reward these desired signals:
+${this.config.desiredSignals}
+
+Disqualify these cases even if there is emotional pain:
+${this.config.avoidSignals}
+
+Important: infer meaning, not just keywords. If "college" is only part of an old story, do not disqualify for student status. If the author says they are currently in college, disqualify.
 
 u/${post.author} r/${post.subreddit} ${postDate}
 "${post.content.substring(0, 400)}"
 
 Format:
 SCORE: X.X
+PAIN: 0-10
+MONEY: 0-10 or UNKNOWN
+LOCATION: US/EUROPE/OTHER/UNKNOWN
+AGE: number or UNKNOWN
+GENDER: MALE/FEMALE/UNKNOWN
+DISQUALIFY: YES or NO
 REASON: [brief why]`;
 
         try {
@@ -568,6 +602,16 @@ REASON: [brief why]`;
         } catch (error) {
             return {
                 score: 3.0,
+                pain: 0,
+                money: 'UNKNOWN',
+                location: 'UNKNOWN',
+                age: '',
+                gender: 'UNKNOWN',
+                disqualified: true,
+                financial: 'Unknown',
+                struggle: 'AI error',
+                motivation: 1,
+                conversion: 'Low',
                 reasoning: 'AI error'
             };
         }
@@ -610,7 +654,7 @@ Be empathetic, no sales pitch.`;
                     body: JSON.stringify({
                         model: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
                         messages: [{ role: 'user', content: prompt }],
-                        max_tokens: 100,
+                        max_tokens: 180,
                         temperature: 0.1
                     }),
                     signal: AbortSignal.timeout(30000) // 30 second timeout
@@ -640,15 +684,49 @@ Be empathetic, no sales pitch.`;
     parsePostAnalysisSafely(response) {
         try {
             const scoreMatch = response.match(/SCORE:\s*(\d+\.?\d*)/i);
+            const painMatch = response.match(/PAIN:\s*(\d+\.?\d*)/i);
+            const moneyMatch = response.match(/MONEY:\s*([^\n]+)/i);
+            const locationMatch = response.match(/LOCATION:\s*([^\n]+)/i);
+            const ageMatch = response.match(/AGE:\s*([^\n]+)/i);
+            const genderMatch = response.match(/GENDER:\s*([^\n]+)/i);
+            const disqualifyMatch = response.match(/DISQUALIFY:\s*(YES|NO)/i);
             const reasonMatch = response.match(/REASON:\s*(.+?)(?:\n|$)/i);
+            const score = scoreMatch ? Math.max(1, Math.min(10, parseFloat(scoreMatch[1]))) : 5.0;
+            const pain = painMatch ? Math.max(0, Math.min(10, parseFloat(painMatch[1]))) : 0;
+            const money = moneyMatch ? SecurityUtils.escapeHTML(moneyMatch[1].trim().toUpperCase()) : 'UNKNOWN';
+            const location = locationMatch ? SecurityUtils.escapeHTML(locationMatch[1].trim().toUpperCase()) : 'UNKNOWN';
+            const ageRaw = ageMatch ? ageMatch[1].trim() : '';
+            const age = /^unknown$/i.test(ageRaw) ? '' : SecurityUtils.escapeHTML(ageRaw);
+            const gender = genderMatch ? SecurityUtils.escapeHTML(genderMatch[1].trim().toUpperCase()) : 'UNKNOWN';
+            const disqualified = (disqualifyMatch ? /^yes$/i.test(disqualifyMatch[1]) : false) || gender === 'FEMALE';
 
             return {
-                score: scoreMatch ? Math.max(1, Math.min(10, parseFloat(scoreMatch[1]))) : 5.0,
+                score,
+                pain,
+                money,
+                location,
+                age,
+                gender,
+                disqualified,
+                financial: `Money: ${money}`,
+                struggle: `Pain: ${pain}/10`,
+                motivation: Math.max(1, Math.min(5, Math.round(pain / 2))),
+                conversion: disqualified ? 'Disqualified' : score >= 8 ? 'High' : score >= 6 ? 'Medium' : 'Low',
                 reasoning: reasonMatch ? SecurityUtils.escapeHTML(reasonMatch[1].trim()) : 'No reason provided'
             };
         } catch (error) {
             return {
                 score: 5.0,
+                pain: 0,
+                money: 'UNKNOWN',
+                location: 'UNKNOWN',
+                age: '',
+                gender: 'UNKNOWN',
+                disqualified: false,
+                financial: 'Money: UNKNOWN',
+                struggle: 'Pain: 0/10',
+                motivation: 1,
+                conversion: 'Low',
                 reasoning: 'Parse error'
             };
         }
@@ -739,6 +817,10 @@ Be empathetic, no sales pitch.`;
             className: 'text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded'
         });
 
+        const dateBadge = SecurityUtils.createElement('span', `Posted ${this.formatPostDate(prospect.post.created_utc)}`, {
+            className: 'text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded'
+        });
+
         // View Post link
         const postLink = document.createElement('a');
         postLink.href = prospect.post.url;
@@ -750,6 +832,7 @@ Be empathetic, no sales pitch.`;
         topRow.appendChild(username);
         topRow.appendChild(scoreBadge);
         topRow.appendChild(subredditBadge);
+        topRow.appendChild(dateBadge);
         topRow.appendChild(postLink);
 
         // Title
@@ -784,11 +867,13 @@ Be empathetic, no sales pitch.`;
         tagsDiv.className = 'flex flex-wrap gap-2 mb-4';
 
         const tags = [
-            { icon: '💰', text: prospect.analysis.financial, class: 'bg-blue-100 text-blue-800' },
-            { icon: '😔', text: prospect.analysis.struggle, class: 'bg-orange-100 text-orange-800' },
-            { icon: '🎯', text: `Motivation: ${prospect.analysis.motivation}/5`, class: 'bg-green-100 text-green-800' },
+            { icon: '💰', text: prospect.analysis.financial || 'Money: UNKNOWN', class: 'bg-blue-100 text-blue-800' },
+            { icon: '😔', text: prospect.analysis.struggle || 'Pain: UNKNOWN', class: 'bg-orange-100 text-orange-800' },
+            { icon: '🌍', text: `Location: ${prospect.analysis.location || 'UNKNOWN'}`, class: 'bg-cyan-100 text-cyan-800' },
+            { icon: '🚻', text: `Gender: ${prospect.analysis.gender || 'UNKNOWN'}`, class: 'bg-pink-100 text-pink-800' },
+            { icon: '🎯', text: `Motivation: ${prospect.analysis.motivation || 'UNKNOWN'}/5`, class: 'bg-green-100 text-green-800' },
             ...(prospect.analysis.age ? [{ icon: '👤', text: `Age: ${prospect.analysis.age}`, class: 'bg-gray-100 text-gray-800' }] : []),
-            { icon: '📈', text: `${prospect.analysis.conversion} Conversion`, class: 'bg-purple-100 text-purple-800' }
+            { icon: '📈', text: `${prospect.analysis.conversion || 'Unknown'} Conversion`, class: 'bg-purple-100 text-purple-800' }
         ];
 
         tags.forEach(tag => {
@@ -864,6 +949,12 @@ Be empathetic, no sales pitch.`;
             actionsDiv.appendChild(contactedSpan);
         }
 
+        const badLeadBtn = SecurityUtils.createElement('button', '🚫 Not a Lead', {
+            className: 'bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors'
+        });
+        badLeadBtn.addEventListener('click', () => this.markAsBadLeadSafely(prospect.id));
+        actionsDiv.appendChild(badLeadBtn);
+
         messageSection.appendChild(title);
         messageSection.appendChild(messageDiv);
         messageSection.appendChild(actionsDiv);
@@ -931,6 +1022,28 @@ Be empathetic, no sales pitch.`;
         }
     }
 
+    markAsBadLeadSafely(prospectId) {
+        try {
+            const prospect = this.prospects.find(p => p.id === prospectId);
+            if (!prospect) {
+                this.showToast('Prospect not found', 'error');
+                return;
+            }
+
+            this.disqualifiedPostIds.add(prospect.post.id);
+            localStorage.setItem('coachConnect_disqualifiedPostIds', JSON.stringify([...this.disqualifiedPostIds]));
+            this.prospects = this.prospects.filter(p => p.id !== prospectId);
+
+            this.saveProspectsSafely();
+            this.showToast('Lead hidden from future searches', 'success', 2000);
+            this.updateUI();
+
+        } catch (error) {
+            console.error('Error disqualifying lead:', error);
+            this.showToast('Failed to hide lead', 'error');
+        }
+    }
+
     saveProspectsSafely() {
         try {
             const dataToSave = JSON.stringify(this.prospects);
@@ -963,19 +1076,21 @@ Be empathetic, no sales pitch.`;
 
     generateSecureCSV() {
         const headers = [
-            'Username', 'Subreddit', 'Post Title', 'AI Score', 'Financial Status',
-            'Struggle', 'Motivation', 'Age', 'Conversion', 'Contacted', 'Contacted Date', 'Message Preview'
+            'Username', 'Subreddit', 'Post Date', 'Post Title', 'AI Score', 'Pain',
+            'Money', 'Location', 'Age', 'Gender', 'Conversion', 'Contacted', 'Contacted Date', 'Message Preview'
         ];
 
         const rows = this.prospects.map(p => [
             SecurityUtils.sanitizeCSV(p.post.author),
             SecurityUtils.sanitizeCSV(p.post.subreddit),
+            this.formatPostDate(p.post.created_utc),
             SecurityUtils.sanitizeCSV(p.post.title),
             p.score.toString(),
-            SecurityUtils.sanitizeCSV(p.analysis.financial),
-            SecurityUtils.sanitizeCSV(p.analysis.struggle),
-            p.analysis.motivation.toString(),
+            p.analysis.pain?.toString() || '',
+            SecurityUtils.sanitizeCSV(p.analysis.money || 'UNKNOWN'),
+            SecurityUtils.sanitizeCSV(p.analysis.location || 'UNKNOWN'),
             p.analysis.age ? p.analysis.age.toString() : '',
+            SecurityUtils.sanitizeCSV(p.analysis.gender || 'UNKNOWN'),
             SecurityUtils.sanitizeCSV(p.analysis.conversion),
             p.contacted ? 'Yes' : 'No',
             p.contactedAt ? new Date(p.contactedAt).toLocaleDateString() : '',
@@ -986,6 +1101,14 @@ Be empathetic, no sales pitch.`;
             headers.join(','),
             ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
         ].join('\n');
+    }
+
+    formatPostDate(createdUtc) {
+        const timestamp = Number(createdUtc) * 1000;
+        if (!Number.isFinite(timestamp) || timestamp <= 0) {
+            return 'unknown date';
+        }
+        return new Date(timestamp).toLocaleDateString();
     }
 
     downloadFileSafely(content, filename, mimeType) {
@@ -1127,11 +1250,15 @@ Be empathetic, no sales pitch.`;
             // Populate form with current config
             const apiKeyInput = document.getElementById('apiKeyInput');
             const subredditsInput = document.getElementById('subredditsInput');
+            const desiredSignalsInput = document.getElementById('desiredSignalsInput');
+            const avoidSignalsInput = document.getElementById('avoidSignalsInput');
             const minScoreInput = document.getElementById('minScoreInput');
             const maxResultsInput = document.getElementById('maxResultsInput');
 
             if (apiKeyInput) apiKeyInput.value = this.config.apiKey || '';
             if (subredditsInput) subredditsInput.value = this.config.subreddits.join(',');
+            if (desiredSignalsInput) desiredSignalsInput.value = this.config.desiredSignals || '';
+            if (avoidSignalsInput) avoidSignalsInput.value = this.config.avoidSignals || '';
             if (minScoreInput) minScoreInput.value = this.config.minScore.toFixed(1);
             if (maxResultsInput) maxResultsInput.value = this.config.maxResults.toString();
 
