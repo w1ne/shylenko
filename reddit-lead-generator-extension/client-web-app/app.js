@@ -21,6 +21,7 @@ class SecureCoachConnectApp {
         this.rejectedLeads = [];
         this.currentFilter = 'active';
         this.editingLeadId = null;
+        this.deferredInstallPrompt = null;
         this.isAnalyzing = false;
         this.analysisAborted = false;
 
@@ -39,6 +40,8 @@ class SecureCoachConnectApp {
         try {
             await this.loadConfig();
             this.initializeEventListeners();
+            this.initializeInstallPrompt();
+            this.registerServiceWorkerSafely();
             this.updateUI();
             this.showWelcomeMessage();
         } catch (error) {
@@ -244,6 +247,11 @@ class SecureCoachConnectApp {
                 this.exportDataSafely();
             });
 
+            document.getElementById('installAppBtn')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.installAppSafely();
+            });
+
             document.getElementById('filterActiveBtn')?.addEventListener('click', () => this.setFilterSafely('active'));
             document.getElementById('filterSavedBtn')?.addEventListener('click', () => this.setFilterSafely('saved'));
             document.getElementById('filterRejectedBtn')?.addEventListener('click', () => this.setFilterSafely('rejected'));
@@ -283,6 +291,56 @@ class SecureCoachConnectApp {
         } catch (error) {
             console.error('Error setting up event listeners:', error);
         }
+    }
+
+    initializeInstallPrompt() {
+        try {
+            window.addEventListener('beforeinstallprompt', (event) => {
+                event.preventDefault();
+                this.deferredInstallPrompt = event;
+                document.getElementById('installAppBtn')?.classList.remove('hidden');
+            });
+
+            window.addEventListener('appinstalled', () => {
+                this.deferredInstallPrompt = null;
+                document.getElementById('installAppBtn')?.classList.add('hidden');
+                this.showToast('App installed', 'success', 2000);
+            });
+        } catch (error) {
+            console.warn('Install prompt setup failed:', error);
+        }
+    }
+
+    async installAppSafely() {
+        try {
+            if (!this.deferredInstallPrompt) {
+                this.showToast('Install is not available in this browser right now', 'info');
+                return;
+            }
+
+            this.deferredInstallPrompt.prompt();
+            const choice = await this.deferredInstallPrompt.userChoice;
+            this.deferredInstallPrompt = null;
+            document.getElementById('installAppBtn')?.classList.add('hidden');
+
+            if (choice?.outcome === 'accepted') {
+                this.showToast('Installing app', 'success', 2000);
+            }
+        } catch (error) {
+            console.error('Install failed:', error);
+            this.showToast('Install failed', 'error');
+        }
+    }
+
+    registerServiceWorkerSafely() {
+        if (!('serviceWorker' in navigator)) {
+            return;
+        }
+
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./service-worker.js')
+                .catch(error => console.warn('Service worker registration failed:', error));
+        });
     }
 
     updateUI() {
