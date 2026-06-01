@@ -58,28 +58,28 @@
         }
     </style>
 </head>
-<body class="bg-gray-50">
+<body class="bg-gray-50 overflow-x-hidden">
     <!-- Navigation -->
     <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between items-center h-16">
-                <div class="flex items-center">
-                    <h1 class="text-2xl font-bold gradient-text">Coach Connect Pro</h1>
-                    <span id="configStatus" class="ml-4 px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800 hidden">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 py-3 sm:h-16 sm:py-0">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto min-w-0">
+                    <h1 class="text-xl sm:text-2xl font-bold gradient-text leading-tight">Coach Connect Pro</h1>
+                    <span id="configStatus" class="shrink-0 px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800 hidden">
                         Configuration Required
                     </span>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <a href="https://github.com/w1ne/reddit-lead-generator-extension/archive/refs/heads/main.zip" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors" download>
+                <div class="grid grid-cols-2 sm:flex gap-2 items-center justify-start sm:justify-end w-full sm:w-auto">
+                    <a href="https://github.com/w1ne/reddit-lead-generator-extension/archive/refs/heads/main.zip" class="col-span-2 sm:col-span-1 text-center px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors" download>
                         ⬇️ Download Source
                     </a>
-                    <button id="installAppBtn" class="hidden px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
+                    <button id="installAppBtn" class="hidden px-3 sm:px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
                         📲 Install App
                     </button>
-                    <button id="configBtn" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                    <button id="configBtn" class="w-full sm:w-auto px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
                         ⚙️ Settings
                     </button>
-                    <button id="exportBtn" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                    <button id="exportBtn" class="w-full sm:w-auto px-3 sm:px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
                         📥 Export
                     </button>
                 </div>
